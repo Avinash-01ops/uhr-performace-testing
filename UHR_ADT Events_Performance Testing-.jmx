@@ -53,22 +53,22 @@ FIXES APPLIED vs previous version:
           </elementProp>
           <elementProp name="KC_CLIENT_ID" elementType="Argument">
             <stringProp name="Argument.name">KC_CLIENT_ID</stringProp>
-            <stringProp name="Argument.value">csbridge</stringProp>
+            <stringProp name="Argument.value">${__env(KC_CLIENT_ID,csbridge)}</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
           <elementProp name="KC_CLIENT_SECRET" elementType="Argument">
             <stringProp name="Argument.name">KC_CLIENT_SECRET</stringProp>
-            <stringProp name="Argument.value">sCoM6iEyMz4yMTRPWGBeCApQLJJ03mHI</stringProp>
+            <stringProp name="Argument.value">${__env(KC_CLIENT_SECRET,)}</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
           <elementProp name="KC_USERNAME" elementType="Argument">
             <stringProp name="Argument.name">KC_USERNAME</stringProp>
-            <stringProp name="Argument.value">testuser-csbridge</stringProp>
+            <stringProp name="Argument.value">${__env(KC_USERNAME,testuser-csbridge)}</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
           <elementProp name="KC_PASSWORD" elementType="Argument">
             <stringProp name="Argument.name">KC_PASSWORD</stringProp>
-            <stringProp name="Argument.value">Csbridge@0000</stringProp>
+            <stringProp name="Argument.value">${__env(KC_PASSWORD,)}</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
         </collectionProp>
@@ -179,7 +179,7 @@ if (token != null &amp;&amp; !token.equals(&quot;TOKEN_NOT_FOUND&quot;) &amp;&am
           <hashTree/>
         </hashTree>
       </hashTree>
-      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="1. SMOKE TEST - 2 VU, 60s (Run this first!)" enabled="false">
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="1. SMOKE TEST - 2 VU, 60s (Run this first!)">
         <intProp name="ThreadGroup.num_threads">2</intProp>
         <intProp name="ThreadGroup.ramp_time">10</intProp>
         <longProp name="ThreadGroup.duration">60</longProp>
@@ -24891,7 +24891,7 @@ if (token != null &amp;&amp; !token.isEmpty()) {
         </GaussianRandomTimer>
         <hashTree/>
       </hashTree>
-      <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report">
+      <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report" enabled="true">
         <boolProp name="ResultCollector.error_logging">false</boolProp>
         <objProp>
           <name>saveConfig</name>
@@ -24928,7 +24928,7 @@ if (token != null &amp;&amp; !token.isEmpty()) {
         <stringProp name="filename">results/aggregate_report.csv</stringProp>
       </ResultCollector>
       <hashTree/>
-      <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="Summary Report">
+      <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="Summary Report" enabled="true">
         <boolProp name="ResultCollector.error_logging">false</boolProp>
         <objProp>
           <name>saveConfig</name>
@@ -24965,7 +24965,7 @@ if (token != null &amp;&amp; !token.isEmpty()) {
         <stringProp name="filename">results/summary_report.csv</stringProp>
       </ResultCollector>
       <hashTree/>
-      <ResultCollector guiclass="RespTimeGraphVisualizer" testclass="ResultCollector" testname="Response Time Graph">
+      <ResultCollector guiclass="RespTimeGraphVisualizer" testclass="ResultCollector" testname="Response Time Graph" enabled="true">
         <boolProp name="ResultCollector.error_logging">false</boolProp>
         <objProp>
           <name>saveConfig</name>

@@ -44,6 +44,12 @@ jobs:
     name: "1. Smoke Test (2 VU, 60s)"
     runs-on: ubuntu-latest
 
+    env:
+      KC_CLIENT_ID: ${{ secrets.KC_CLIENT_ID }}
+      KC_CLIENT_SECRET: ${{ secrets.KC_CLIENT_SECRET }}
+      KC_USERNAME: ${{ secrets.KC_USERNAME }}
+      KC_PASSWORD: ${{ secrets.KC_PASSWORD }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -98,6 +104,12 @@ jobs:
     name: "2. Load Test (50 VU, 10min)"
     runs-on: ubuntu-latest
     needs: smoke-test
+
+    env:
+      KC_CLIENT_ID: ${{ secrets.KC_CLIENT_ID }}
+      KC_CLIENT_SECRET: ${{ secrets.KC_CLIENT_SECRET }}
+      KC_USERNAME: ${{ secrets.KC_USERNAME }}
+      KC_PASSWORD: ${{ secrets.KC_PASSWORD }}
 
     steps:
       - name: Checkout repository
@@ -154,6 +166,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: load-test
 
+    env:
+      KC_CLIENT_ID: ${{ secrets.KC_CLIENT_ID }}
+      KC_CLIENT_SECRET: ${{ secrets.KC_CLIENT_SECRET }}
+      KC_USERNAME: ${{ secrets.KC_USERNAME }}
+      KC_PASSWORD: ${{ secrets.KC_PASSWORD }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -208,6 +226,12 @@ jobs:
     name: "4. Spike Test (200 VU, 2min)"
     runs-on: ubuntu-latest
     needs: stress-test
+
+    env:
+      KC_CLIENT_ID: ${{ secrets.KC_CLIENT_ID }}
+      KC_CLIENT_SECRET: ${{ secrets.KC_CLIENT_SECRET }}
+      KC_USERNAME: ${{ secrets.KC_USERNAME }}
+      KC_PASSWORD: ${{ secrets.KC_PASSWORD }}
 
     steps:
       - name: Checkout repository

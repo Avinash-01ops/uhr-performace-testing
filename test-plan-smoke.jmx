@@ -56,22 +56,22 @@ FIXES APPLIED vs previous version:
           </elementProp>
           <elementProp name="KC_CLIENT_ID" elementType="Argument">
             <stringProp name="Argument.name">KC_CLIENT_ID</stringProp>
-            <stringProp name="Argument.value">csbridge</stringProp>
+            <stringProp name="Argument.value">${__env(KC_CLIENT_ID,csbridge)}</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
           <elementProp name="KC_CLIENT_SECRET" elementType="Argument">
             <stringProp name="Argument.name">KC_CLIENT_SECRET</stringProp>
-            <stringProp name="Argument.value">sCoM6iEyMz4yMTRPWGBeCApQLJJ03mHI</stringProp>
+            <stringProp name="Argument.value">${__env(KC_CLIENT_SECRET,)}</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
           <elementProp name="KC_USERNAME" elementType="Argument">
             <stringProp name="Argument.name">KC_USERNAME</stringProp>
-            <stringProp name="Argument.value">testuser-csbridge</stringProp>
+            <stringProp name="Argument.value">${__env(KC_USERNAME,testuser-csbridge)}</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
           <elementProp name="KC_PASSWORD" elementType="Argument">
             <stringProp name="Argument.name">KC_PASSWORD</stringProp>
-            <stringProp name="Argument.value">Csbridge@0000</stringProp>
+            <stringProp name="Argument.value">${__env(KC_PASSWORD,)}</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
         </collectionProp>
