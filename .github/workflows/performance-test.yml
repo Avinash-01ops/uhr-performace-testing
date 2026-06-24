@@ -10,7 +10,7 @@
 #
 # After all tests complete (pass or fail):
 #   → A unified HTML dashboard is published to GitHub Pages
-#   → A summary is sent to Microsoft Teams
+#   → Results published to GitHub Pages dashboard
 #
 # Key design decisions:
 #   • All 4 tests run in ONE job — JMeter is installed once (saves ~15 min)
@@ -387,113 +387,4 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
-  # ════════════════════════════════════════════════════════════
-  # JOB 3 — Notify Microsoft Teams
-  # ════════════════════════════════════════════════════════════
-  notify-teams:
-    name: "Send Teams Notification"
-    runs-on: ubuntu-latest
-    needs: [run-all-tests, publish-report]
-    if: always()
 
-    steps:
-      - name: Determine overall status
-        id: status
-        run: |
-          SMOKE="${{ needs.run-all-tests.outputs.smoke_status }}"
-          LOAD="${{ needs.run-all-tests.outputs.load_status }}"
-          STRESS="${{ needs.run-all-tests.outputs.stress_status }}"
-          SPIKE="${{ needs.run-all-tests.outputs.spike_status }}"
-
-          if [ "$SMOKE" = "success" ] && [ "$LOAD" = "success" ] && [ "$STRESS" = "success" ] && [ "$SPIKE" = "success" ]; then
-            echo "overall=success" >> $GITHUB_OUTPUT
-            echo "color=00C853" >> $GITHUB_OUTPUT
-            echo "emoji=✅" >> $GITHUB_OUTPUT
-          else
-            echo "overall=failure" >> $GITHUB_OUTPUT
-            echo "color=D32F2F" >> $GITHUB_OUTPUT
-            echo "emoji=❌" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Send notification to Teams
-        if: secrets.MSTEAMS_WEBHOOK_URL != ''
-        run: |
-          WEBHOOK_URL="${{ secrets.MSTEAMS_WEBHOOK_URL }}"
-          OVERALL="${{ steps.status.outputs.overall }}"
-          COLOR="${{ steps.status.outputs.color }}"
-          EMOJI="${{ steps.status.outputs.emoji }}"
-          BRANCH="${{ github.ref_name }}"
-          COMMIT="${{ github.sha }}"
-          ACTOR="${{ github.actor }}"
-          EVENT="${{ github.event_name }}"
-          DASHBOARD="${{ needs.publish-report.outputs.page_url }}"
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
-          # Build status badges
-          SMOKE_STATUS="${{ needs.run-all-tests.outputs.smoke_status }}"
-          LOAD_STATUS="${{ needs.run-all-tests.outputs.load_status }}"
-          STRESS_STATUS="${{ needs.run-all-tests.outputs.stress_status }}"
-          SPIKE_STATUS="${{ needs.run-all-tests.outputs.spike_status }}"
-
-          SMOKE_EMOJI=$([ "$SMOKE_STATUS" = "success" ] && echo "✅" || echo "❌")
-          LOAD_EMOJI=$([ "$LOAD_STATUS" = "success" ] && echo "✅" || echo "❌")
-          STRESS_EMOJI=$([ "$STRESS_STATUS" = "success" ] && echo "✅" || echo "❌")
-          SPIKE_EMOJI=$([ "$SPIKE_STATUS" = "success" ] && echo "✅" || echo "❌")
-
-          # Build the adaptive card JSON
-          cat > /tmp/teams_payload.json << EOF
-          {
-            "@type": "MessageCard",
-            "@context": "http://schema.org/extensions",
-            "themeColor": "${COLOR}",
-            "summary": "UHR ADT Performance Tests - ${OVERALL}",
-            "sections": [
-              {
-                "activityTitle": "${EMOJI} UHR ADT Performance Tests Completed",
-                "activitySubtitle": "Branch: ${BRANCH} | Triggered by: ${ACTOR}",
-                "facts": [
-                  { "name": "Commit", "value": "${COMMIT:0:8}" },
-                  { "name": "Event", "value": "${EVENT}" },
-                  { "name": "Overall Status", "value": "${OVERALL}" }
-                ]
-              },
-              {
-                "title": "Test Results",
-                "facts": [
-                  { "name": "🔵 Smoke (2 VU, 60s)", "value": "${SMOKE_EMOJI} ${SMOKE_STATUS}" },
-                  { "name": "🟡 Load (50 VU, 10min)", "value": "${LOAD_EMOJI} ${LOAD_STATUS}" },
-                  { "name": "🟠 Stress (150 VU, 5min)", "value": "${STRESS_EMOJI} ${STRESS_STATUS}" },
-                  { "name": "🔴 Spike (200 VU, 2min)", "value": "${SPIKE_EMOJI} ${SPIKE_STATUS}" }
-                ]
-              }
-            ],
-            "potentialAction": [
-              {
-                "@type": "OpenUri",
-                "name": "📊 View Dashboard",
-                "targets": [{ "os": "default", "uri": "${DASHBOARD}" }]
-              },
-              {
-                "@type": "OpenUri",
-                "name": "🔗 View Workflow Run",
-                "targets": [{ "os": "default", "uri": "${RUN_URL}" }]
-              }
-            ]
-          }
-          EOF
-
-          echo "Sending notification to Teams..."
-          HTTP_CODE=$(curl -s -o /tmp/teams_response.txt -w "%{http_code}" \
-            -X POST \
-            -H "Content-Type: application/json" \
-            -d @/tmp/teams_payload.json \
-            "${WEBHOOK_URL}")
-
-          echo "Teams response HTTP: ${HTTP_CODE}"
-          cat /tmp/teams_response.txt
-
-          if [ "${HTTP_CODE}" != "200" ]; then
-            echo "⚠️ Teams notification may have failed"
-          else
-            echo "✅ Teams notification sent successfully"
-          fi
