@@ -1,339 +1,761 @@
 # ──────────────────────────────────────────────────────────────
-# Performance Testing Workflow
+# UHR ADT Events — Performance Testing Pipeline
 # ──────────────────────────────────────────────────────────────
-# This workflow runs JMeter performance tests automatically on
-# every push and pull request.
 #
-# Test execution order (sequential):
-#   1. Smoke Test   → 2 VU, 60s   (quick validation)
-#   2. Load Test   → 50 VU, 10min (normal load)
-#   3. Stress Test → 150 VU, 5min (find breaking point)
-#   4. Spike Test  → 200 VU, 2min (sudden burst)
+# Test execution order (sequential, each is non-blocking):
+#   1. Smoke Test   →   2 VU,  60s   (quick sanity check)
+#   2. Load Test    →  50 VU, 600s   (normal production load)
+#   3. Stress Test  → 150 VU, 300s   (find the breaking point)
+#   4. Spike Test   → 200 VU, 120s   (sudden traffic burst)
 #
-# After all tests:
-#   - HTML report published to GitHub Pages (free)
-#   - Summary notification sent to Microsoft Teams
+# After all tests complete (pass or fail):
+#   → A unified HTML dashboard is published to GitHub Pages
+#   → A summary is sent to Microsoft Teams
+#
+# Key design decisions:
+#   • All 4 tests run in ONE job — JMeter is installed once (saves ~15 min)
+#   • Each test step uses continue-on-error so later tests always run
+#   • The dashboard always publishes, even if some tests failed
+#   • Exit codes are captured to show accurate PASS/FAIL status per test
 # ──────────────────────────────────────────────────────────────
 
 name: Performance Tests
 
-# ── When to run ──────────────────────────────────────────────
+# ── Triggers ─────────────────────────────────────────────────
 on:
   push:
   pull_request:
   workflow_dispatch:
 
-# ── Permissions for GitHub Pages ────────────────────────────
+# ── GitHub Pages permissions ──────────────────────────────────
 permissions:
   contents: read
   pages: write
   id-token: write
   pull-requests: write
 
-# ── Allow only one deployment at a time ──────────────────────
+# ── Only one Pages deployment at a time ──────────────────────
 concurrency:
   group: "pages"
   cancel-in-progress: false
 
-# ── Jobs ─────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+# JOBS
+# ══════════════════════════════════════════════════════════════
 jobs:
+
   # ════════════════════════════════════════════════════════════
-  # JOB 1: Smoke Test (quick validation)
+  # JOB 1 — Run all performance tests (single job, sequential)
   # ════════════════════════════════════════════════════════════
-  smoke-test:
-    name: "1. Smoke Test (2 VU, 60s)"
+  run-all-tests:
+    name: "Run All Performance Tests"
     runs-on: ubuntu-latest
 
+    # Expose per-test exit codes as job outputs for the dashboard
+    outputs:
+      smoke_status:  ${{ steps.smoke.outcome }}
+      load_status:   ${{ steps.load.outcome }}
+      stress_status: ${{ steps.stress.outcome }}
+      spike_status:  ${{ steps.spike.outcome }}
+
     env:
-      KC_CLIENT_ID: ${{ secrets.KC_CLIENT_ID }}
+      KC_CLIENT_ID:     ${{ secrets.KC_CLIENT_ID }}
       KC_CLIENT_SECRET: ${{ secrets.KC_CLIENT_SECRET }}
-      KC_USERNAME: ${{ secrets.KC_USERNAME }}
-      KC_PASSWORD: ${{ secrets.KC_PASSWORD }}
+      KC_USERNAME:      ${{ secrets.KC_USERNAME }}
+      KC_PASSWORD:      ${{ secrets.KC_PASSWORD }}
+      JMETER_HOME:      ${{ github.workspace }}/apache-jmeter-5.6.3
 
     steps:
+      # ── Setup ─────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Java 11
         uses: actions/setup-java@v4
         with:
-          distribution: "temurin"
+          distribution: temurin
           java-version: "11"
 
       - name: Install JMeter 5.6.3
         run: |
+          echo "⬇️  Downloading JMeter 5.6.3..."
           wget -q https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-5.6.3.tgz
           tar -xzf apache-jmeter-5.6.3.tgz
-          echo "JMeter version:"
-          ./apache-jmeter-5.6.3/bin/jmeter --version
+          echo "✅ JMeter installed."
+          ./apache-jmeter-5.6.3/bin/jmeter --version 2>&1 | head -3
 
-      - name: Create results directory
-        run: mkdir -p results/smoke
+      - name: Create results directories
+        run: mkdir -p results/{smoke,load,stress,spike}
 
-      - name: Run Smoke Test
+      # ── Test 1: Smoke ──────────────────────────────────────
+      - name: "🔵 Smoke Test (2 VU, 60s)"
+        id: smoke
+        continue-on-error: true
         run: |
-          echo "Starting Smoke Test..."
-          ./apache-jmeter-5.6.3/bin/jmeter \
+          echo "──────────────────────────────────────────"
+          echo "  SMOKE TEST — 2 Virtual Users, 60 seconds"
+          echo "──────────────────────────────────────────"
+          $JMETER_HOME/bin/jmeter \
             -n \
             -t test-plan-smoke.jmx \
             -l results/smoke/results.csv \
             -e \
             -o results/smoke/html_report
-          echo "Smoke Test completed."
+          echo "✅ Smoke Test finished."
 
-      - name: Upload Smoke Test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: jmeter-smoke-results
-          path: results/smoke/
-          retention-days: 30
-
-      - name: Upload report for Pages
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: smoke-report
-          path: results/smoke/html_report/
-          retention-days: 7
-
-  # ════════════════════════════════════════════════════════════
-  # JOB 2: Load Test (normal load)
-  # ════════════════════════════════════════════════════════════
-  load-test:
-    name: "2. Load Test (50 VU, 10min)"
-    runs-on: ubuntu-latest
-    needs: smoke-test
-
-    env:
-      KC_CLIENT_ID: ${{ secrets.KC_CLIENT_ID }}
-      KC_CLIENT_SECRET: ${{ secrets.KC_CLIENT_SECRET }}
-      KC_USERNAME: ${{ secrets.KC_USERNAME }}
-      KC_PASSWORD: ${{ secrets.KC_PASSWORD }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Java 11
-        uses: actions/setup-java@v4
-        with:
-          distribution: "temurin"
-          java-version: "11"
-
-      - name: Install JMeter 5.6.3
+      # ── Test 2: Load ───────────────────────────────────────
+      - name: "🟡 Load Test (50 VU, 10min)"
+        id: load
+        continue-on-error: true
         run: |
-          wget -q https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-5.6.3.tgz
-          tar -xzf apache-jmeter-5.6.3.tgz
-          echo "JMeter version:"
-          ./apache-jmeter-5.6.3/bin/jmeter --version
-
-      - name: Create results directory
-        run: mkdir -p results/load
-
-      - name: Run Load Test
-        run: |
-          echo "Starting Load Test..."
-          ./apache-jmeter-5.6.3/bin/jmeter \
+          echo "──────────────────────────────────────────"
+          echo "  LOAD TEST — 50 Virtual Users, 10 minutes"
+          echo "──────────────────────────────────────────"
+          $JMETER_HOME/bin/jmeter \
             -n \
             -t test-plan-load.jmx \
             -l results/load/results.csv \
             -e \
             -o results/load/html_report
-          echo "Load Test completed."
+          echo "✅ Load Test finished."
 
-      - name: Upload Load Test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: jmeter-load-results
-          path: results/load/
-          retention-days: 30
-
-      - name: Upload report for Pages
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: load-report
-          path: results/load/html_report/
-          retention-days: 7
-
-  # ════════════════════════════════════════════════════════════
-  # JOB 3: Stress Test (find breaking point)
-  # ════════════════════════════════════════════════════════════
-  stress-test:
-    name: "3. Stress Test (150 VU, 5min)"
-    runs-on: ubuntu-latest
-    needs: load-test
-
-    env:
-      KC_CLIENT_ID: ${{ secrets.KC_CLIENT_ID }}
-      KC_CLIENT_SECRET: ${{ secrets.KC_CLIENT_SECRET }}
-      KC_USERNAME: ${{ secrets.KC_USERNAME }}
-      KC_PASSWORD: ${{ secrets.KC_PASSWORD }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Java 11
-        uses: actions/setup-java@v4
-        with:
-          distribution: "temurin"
-          java-version: "11"
-
-      - name: Install JMeter 5.6.3
+      # ── Test 3: Stress ─────────────────────────────────────
+      - name: "🟠 Stress Test (150 VU, 5min)"
+        id: stress
+        continue-on-error: true
         run: |
-          wget -q https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-5.6.3.tgz
-          tar -xzf apache-jmeter-5.6.3.tgz
-          echo "JMeter version:"
-          ./apache-jmeter-5.6.3/bin/jmeter --version
-
-      - name: Create results directory
-        run: mkdir -p results/stress
-
-      - name: Run Stress Test
-        run: |
-          echo "Starting Stress Test..."
-          ./apache-jmeter-5.6.3/bin/jmeter \
+          echo "──────────────────────────────────────────"
+          echo "  STRESS TEST — 150 Virtual Users, 5 minutes"
+          echo "──────────────────────────────────────────"
+          $JMETER_HOME/bin/jmeter \
             -n \
             -t test-plan-stress.jmx \
             -l results/stress/results.csv \
             -e \
             -o results/stress/html_report
-          echo "Stress Test completed."
+          echo "✅ Stress Test finished."
 
-      - name: Upload Stress Test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: jmeter-stress-results
-          path: results/stress/
-          retention-days: 30
-
-      - name: Upload report for Pages
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: stress-report
-          path: results/stress/html_report/
-          retention-days: 7
-
-  # ════════════════════════════════════════════════════════════
-  # JOB 4: Spike Test (sudden burst)
-  # ════════════════════════════════════════════════════════════
-  spike-test:
-    name: "4. Spike Test (200 VU, 2min)"
-    runs-on: ubuntu-latest
-    needs: stress-test
-
-    env:
-      KC_CLIENT_ID: ${{ secrets.KC_CLIENT_ID }}
-      KC_CLIENT_SECRET: ${{ secrets.KC_CLIENT_SECRET }}
-      KC_USERNAME: ${{ secrets.KC_USERNAME }}
-      KC_PASSWORD: ${{ secrets.KC_PASSWORD }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Java 11
-        uses: actions/setup-java@v4
-        with:
-          distribution: "temurin"
-          java-version: "11"
-
-      - name: Install JMeter 5.6.3
+      # ── Test 4: Spike ──────────────────────────────────────
+      - name: "🔴 Spike Test (200 VU, 2min)"
+        id: spike
+        continue-on-error: true
         run: |
-          wget -q https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-5.6.3.tgz
-          tar -xzf apache-jmeter-5.6.3.tgz
-          echo "JMeter version:"
-          ./apache-jmeter-5.6.3/bin/jmeter --version
-
-      - name: Create results directory
-        run: mkdir -p results/spike
-
-      - name: Run Spike Test
-        run: |
-          echo "Starting Spike Test..."
-          ./apache-jmeter-5.6.3/bin/jmeter \
+          echo "──────────────────────────────────────────"
+          echo "  SPIKE TEST — 200 Virtual Users, 2 minutes"
+          echo "──────────────────────────────────────────"
+          $JMETER_HOME/bin/jmeter \
             -n \
             -t test-plan-spike.jmx \
             -l results/spike/results.csv \
             -e \
             -o results/spike/html_report
-          echo "Spike Test completed."
+          echo "✅ Spike Test finished."
 
-      - name: Upload Spike Test results
+      # ── Upload all raw results (CSV + HTML reports) ────────
+      - name: Upload all test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: jmeter-spike-results
-          path: results/spike/
+          name: all-test-results
+          path: results/
           retention-days: 30
 
-      - name: Upload report for Pages
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: spike-report
-          path: results/spike/html_report/
-          retention-days: 7
-
   # ════════════════════════════════════════════════════════════
-  # JOB 5: Publish Reports to GitHub Pages
+  # JOB 2 — Build dashboard & publish to GitHub Pages
   # ════════════════════════════════════════════════════════════
   publish-report:
-    name: "Publish Report to GitHub Pages"
+    name: "Publish Dashboard to GitHub Pages"
     runs-on: ubuntu-latest
-    needs: [smoke-test, load-test, stress-test, spike-test]
+    needs: run-all-tests
     if: always()
 
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
 
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download all reports
+      - name: Download test results
         uses: actions/download-artifact@v4
         with:
-          path: all-reports
+          name: all-test-results
+          path: results
+        # If the test job was skipped entirely (e.g. no artifacts), continue anyway
+        continue-on-error: true
 
-      - name: Prepare Pages structure
+      # ── Parse CSV files & generate the dashboard ──────────
+      - name: Generate dashboard index.html
+        env:
+          SMOKE_STATUS:  ${{ needs.run-all-tests.outputs.smoke_status }}
+          LOAD_STATUS:   ${{ needs.run-all-tests.outputs.load_status }}
+          STRESS_STATUS: ${{ needs.run-all-tests.outputs.stress_status }}
+          SPIKE_STATUS:  ${{ needs.run-all-tests.outputs.spike_status }}
+          GITHUB_SHA:    ${{ github.sha }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_ACTOR:  ${{ github.actor }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: |
-          mkdir -p public
-          cat > public/index.html << 'HTMLEOF'
-          <!DOCTYPE html>
-          <html>
+          python3 << 'PYEOF'
+          import csv, os, json, math
+          from datetime import datetime, timezone
+
+          def parse_csv(path):
+              """Read a JMeter results.csv and return summary stats."""
+              if not os.path.exists(path):
+                  return None
+              rows = []
+              try:
+                  with open(path, newline='', encoding='utf-8') as f:
+                      reader = csv.DictReader(f)
+                      for row in reader:
+                          rows.append(row)
+              except Exception:
+                  return None
+              if not rows:
+                  return None
+
+              total     = len(rows)
+              errors    = sum(1 for r in rows if r.get('success','true').strip().lower() == 'false')
+              error_pct = round((errors / total) * 100, 1) if total else 0
+
+              latencies = []
+              for r in rows:
+                  try:
+                      latencies.append(int(r.get('elapsed', 0)))
+                  except ValueError:
+                      pass
+
+              avg_ms  = round(sum(latencies) / len(latencies)) if latencies else 0
+              sorted_l = sorted(latencies)
+              p90_idx  = math.ceil(0.90 * len(sorted_l)) - 1
+              p90_ms   = sorted_l[max(p90_idx, 0)] if sorted_l else 0
+
+              # Throughput = total requests / total duration in seconds
+              try:
+                  ts_vals = [int(r.get('timeStamp', 0)) for r in rows if r.get('timeStamp','').isdigit()]
+                  if len(ts_vals) > 1:
+                      duration_s = (max(ts_vals) - min(ts_vals)) / 1000
+                      throughput = round(total / duration_s, 1) if duration_s > 0 else 0
+                  else:
+                      throughput = 0
+              except Exception:
+                  throughput = 0
+
+              return {
+                  'total':      total,
+                  'errors':     errors,
+                  'error_pct':  error_pct,
+                  'avg_ms':     avg_ms,
+                  'p90_ms':     p90_ms,
+                  'throughput': throughput,
+              }
+
+          # ── Test definitions ──────────────────────────────
+          tests = [
+              {
+                  'id':       'smoke',
+                  'name':     'Smoke Test',
+                  'icon':     '🔵',
+                  'config':   '2 VU · 60 seconds',
+                  'purpose':  'Quick sanity check — validates basic connectivity and auth',
+                  'status':   os.environ.get('SMOKE_STATUS', 'skipped'),
+                  'csv':      'results/smoke/results.csv',
+                  'report':   'smoke/index.html',
+              },
+              {
+                  'id':       'load',
+                  'name':     'Load Test',
+                  'icon':     '🟡',
+                  'config':   '50 VU · 10 minutes',
+                  'purpose':  'Simulates normal production traffic volume',
+                  'status':   os.environ.get('LOAD_STATUS', 'skipped'),
+                  'csv':      'results/load/results.csv',
+                  'report':   'load/index.html',
+              },
+              {
+                  'id':       'stress',
+                  'name':     'Stress Test',
+                  'icon':     '🟠',
+                  'config':   '150 VU · 5 minutes',
+                  'purpose':  'Pushes system beyond normal load to find the breaking point',
+                  'status':   os.environ.get('STRESS_STATUS', 'skipped'),
+                  'csv':      'results/stress/results.csv',
+                  'report':   'stress/index.html',
+              },
+              {
+                  'id':       'spike',
+                  'name':     'Spike Test',
+                  'icon':     '🔴',
+                  'config':   '200 VU · 2 minutes',
+                  'purpose':  'Simulates a sudden burst of traffic — measures recovery',
+                  'status':   os.environ.get('SPIKE_STATUS', 'skipped'),
+                  'csv':      'results/spike/results.csv',
+                  'report':   'spike/index.html',
+              },
+          ]
+
+          for t in tests:
+              t['metrics'] = parse_csv(t['csv'])
+
+          # ── Status helpers ────────────────────────────────
+          def status_class(s):
+              return {'success': 'pass', 'failure': 'fail'}.get(s, 'skip')
+
+          def status_label(s):
+              return {'success': '✅ PASSED', 'failure': '❌ FAILED', 'skipped': '⏭ SKIPPED'}.get(s, '⚠️ UNKNOWN')
+
+          def overall_status(tests):
+              statuses = [t['status'] for t in tests]
+              if all(s == 'success' for s in statuses):
+                  return 'ALL PASSED', 'pass'
+              if any(s == 'failure' for s in statuses):
+                  return 'SOME FAILED', 'fail'
+              return 'INCOMPLETE', 'skip'
+
+          sha       = os.environ.get('GITHUB_SHA','')[:7]
+          branch    = os.environ.get('GITHUB_REF_NAME','unknown')
+          actor     = os.environ.get('GITHUB_ACTOR','unknown')
+          run_id    = os.environ.get('GITHUB_RUN_ID','')
+          server    = os.environ.get('GITHUB_SERVER_URL','https://github.com')
+          repo      = os.environ.get('GITHUB_REPOSITORY','')
+          event     = os.environ.get('GITHUB_EVENT_NAME','push')
+          now       = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+          run_url   = f"{server}/{repo}/actions/runs/{run_id}" if run_id else '#'
+          ov_label, ov_class = overall_status(tests)
+
+          # ── Card HTML builder ──────────────────────────────
+          def metric_pill(label, value, unit='', warn=False):
+              cls = 'metric-warn' if warn else ''
+              return f'<div class="metric {cls}"><span class="metric-val">{value}<span class="metric-unit">{unit}</span></span><span class="metric-lbl">{label}</span></div>'
+
+          def build_card(t):
+              sc  = status_class(t['status'])
+              lbl = status_label(t['status'])
+              m   = t['metrics']
+              has_report = os.path.exists(f"results/{t['id']}/html_report/index.html")
+
+              pills = ''
+              if m:
+                  err_warn = m['error_pct'] > 1
+                  pills = f"""
+                      <div class="metrics-grid">
+                          {metric_pill('Total Requests', f"{m['total']:,}")}
+                          {metric_pill('Error Rate', m['error_pct'], '%', warn=err_warn)}
+                          {metric_pill('Avg Response', m['avg_ms'], 'ms', warn=m['avg_ms']>2000)}
+                          {metric_pill('P90 Response', m['p90_ms'], 'ms', warn=m['p90_ms']>3000)}
+                          {metric_pill('Throughput', m['throughput'], '/s')}
+                          {metric_pill('Errors', m['errors'])}
+                      </div>"""
+              else:
+                  pills = '<div class="no-metrics">No metrics available — test did not produce results</div>'
+
+              btn = ''
+              if has_report:
+                  btn = f'<a href="{t["report"]}" class="btn-report">View Full JMeter Report →</a>'
+              else:
+                  btn = '<span class="btn-report disabled">Report not available</span>'
+
+              return f"""
+              <div class="card card-{sc}">
+                  <div class="card-header">
+                      <div class="card-title">
+                          <span class="card-icon">{t['icon']}</span>
+                          <div>
+                              <h2>{t['name']}</h2>
+                              <span class="card-config">{t['config']}</span>
+                          </div>
+                      </div>
+                      <span class="status-badge badge-{sc}">{lbl}</span>
+                  </div>
+                  <p class="card-purpose">{t['purpose']}</p>
+                  {pills}
+                  <div class="card-footer">
+                      {btn}
+                  </div>
+              </div>"""
+
+          cards_html = '\n'.join(build_card(t) for t in tests)
+
+          html = f"""<!DOCTYPE html>
+          <html lang="en">
           <head>
-            <meta http-equiv="refresh" content="0; url=smoke/index.html">
-            <title>Performance Test Reports</title>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>UHR ADT Performance Test Dashboard</title>
+            <meta name="description" content="UHR ADT Events performance test results — Smoke, Load, Stress, Spike">
+            <link rel="preconnect" href="https://fonts.googleapis.com">
+            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+            <style>
+              *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+
+              :root {{
+                --bg:          #0d1117;
+                --bg-card:     #161b22;
+                --bg-card2:    #1c2128;
+                --border:      #30363d;
+                --border-bright: #484f58;
+                --text:        #e6edf3;
+                --text-muted:  #8b949e;
+                --text-dim:    #6e7681;
+                --pass:        #3fb950;
+                --pass-bg:     #0d2c1e;
+                --pass-border: #1a4a2e;
+                --fail:        #f85149;
+                --fail-bg:     #2d1217;
+                --fail-border: #4a1a1d;
+                --skip:        #d29922;
+                --skip-bg:     #2d2600;
+                --skip-border: #4a3e00;
+                --blue:        #58a6ff;
+                --purple:      #bc8cff;
+                --accent:      #1f6feb;
+              }}
+
+              body {{
+                font-family: 'Inter', system-ui, sans-serif;
+                background: var(--bg);
+                color: var(--text);
+                min-height: 100vh;
+                line-height: 1.6;
+              }}
+
+              /* ── Top Banner ─────────────────────────── */
+              .top-banner {{
+                background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #0d1117 100%);
+                border-bottom: 1px solid var(--border);
+                padding: 32px 24px 28px;
+                text-align: center;
+                position: relative;
+                overflow: hidden;
+              }}
+              .top-banner::before {{
+                content: '';
+                position: absolute;
+                inset: 0;
+                background: radial-gradient(ellipse 80% 60% at 50% -20%, rgba(31,111,235,0.15) 0%, transparent 70%);
+                pointer-events: none;
+              }}
+              .banner-label {{
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 2px;
+                text-transform: uppercase;
+                color: var(--blue);
+                margin-bottom: 8px;
+              }}
+              .banner-title {{
+                font-size: clamp(22px, 4vw, 36px);
+                font-weight: 800;
+                color: var(--text);
+                margin-bottom: 6px;
+                letter-spacing: -0.5px;
+              }}
+              .banner-sub {{
+                font-size: 14px;
+                color: var(--text-muted);
+                margin-bottom: 20px;
+              }}
+              .overall-badge {{
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                padding: 8px 20px;
+                border-radius: 99px;
+                font-size: 14px;
+                font-weight: 700;
+                letter-spacing: 0.5px;
+              }}
+              .overall-pass {{ background: var(--pass-bg); color: var(--pass); border: 1px solid var(--pass-border); }}
+              .overall-fail {{ background: var(--fail-bg); color: var(--fail); border: 1px solid var(--fail-border); }}
+              .overall-skip {{ background: var(--skip-bg); color: var(--skip); border: 1px solid var(--skip-border); }}
+
+              /* ── Run Meta Bar ────────────────────────── */
+              .meta-bar {{
+                background: var(--bg-card);
+                border-bottom: 1px solid var(--border);
+                padding: 12px 24px;
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 4px 24px;
+              }}
+              .meta-item {{
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 12px;
+                color: var(--text-muted);
+              }}
+              .meta-item strong {{
+                color: var(--text);
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 11px;
+              }}
+              .meta-item a {{
+                color: var(--blue);
+                text-decoration: none;
+              }}
+              .meta-item a:hover {{ text-decoration: underline; }}
+              .meta-dot {{ color: var(--border-bright); }}
+
+              /* ── Main Grid ───────────────────────────── */
+              .main {{
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 32px 20px 60px;
+              }}
+              .section-title {{
+                font-size: 13px;
+                font-weight: 600;
+                letter-spacing: 1.5px;
+                text-transform: uppercase;
+                color: var(--text-dim);
+                margin-bottom: 16px;
+              }}
+              .cards-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(520px, 1fr));
+                gap: 16px;
+              }}
+
+              /* ── Card ────────────────────────────────── */
+              .card {{
+                background: var(--bg-card);
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                padding: 24px;
+                transition: border-color 0.2s, transform 0.2s;
+              }}
+              .card:hover {{
+                border-color: var(--border-bright);
+                transform: translateY(-1px);
+              }}
+              .card-pass {{ border-left: 3px solid var(--pass); }}
+              .card-fail {{ border-left: 3px solid var(--fail); }}
+              .card-skip {{ border-left: 3px solid var(--skip); }}
+
+              .card-header {{
+                display: flex;
+                align-items: flex-start;
+                justify-content: space-between;
+                margin-bottom: 10px;
+                gap: 12px;
+              }}
+              .card-title {{
+                display: flex;
+                align-items: center;
+                gap: 12px;
+              }}
+              .card-icon {{ font-size: 28px; line-height: 1; }}
+              .card-title h2 {{
+                font-size: 16px;
+                font-weight: 700;
+                color: var(--text);
+                margin-bottom: 2px;
+              }}
+              .card-config {{
+                font-size: 12px;
+                font-family: 'JetBrains Mono', monospace;
+                color: var(--text-muted);
+                background: var(--bg-card2);
+                padding: 2px 8px;
+                border-radius: 4px;
+                border: 1px solid var(--border);
+              }}
+              .status-badge {{
+                flex-shrink: 0;
+                font-size: 11px;
+                font-weight: 700;
+                padding: 5px 12px;
+                border-radius: 99px;
+                white-space: nowrap;
+              }}
+              .badge-pass {{ background: var(--pass-bg); color: var(--pass); border: 1px solid var(--pass-border); }}
+              .badge-fail {{ background: var(--fail-bg); color: var(--fail); border: 1px solid var(--fail-border); }}
+              .badge-skip {{ background: var(--skip-bg); color: var(--skip); border: 1px solid var(--skip-border); }}
+
+              .card-purpose {{
+                font-size: 13px;
+                color: var(--text-muted);
+                margin-bottom: 16px;
+                padding-bottom: 16px;
+                border-bottom: 1px solid var(--border);
+              }}
+
+              /* ── Metrics Grid ─────────────────────────── */
+              .metrics-grid {{
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 10px;
+                margin-bottom: 20px;
+              }}
+              .metric {{
+                background: var(--bg-card2);
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                padding: 12px 10px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+                gap: 4px;
+                transition: border-color 0.2s;
+              }}
+              .metric:hover {{ border-color: var(--border-bright); }}
+              .metric-warn {{
+                background: rgba(248,81,73,0.08);
+                border-color: var(--fail-border);
+              }}
+              .metric-val {{
+                font-size: 20px;
+                font-weight: 700;
+                font-family: 'JetBrains Mono', monospace;
+                color: var(--text);
+              }}
+              .metric-warn .metric-val {{ color: var(--fail); }}
+              .metric-unit {{
+                font-size: 12px;
+                font-weight: 400;
+                color: var(--text-muted);
+                margin-left: 1px;
+              }}
+              .metric-lbl {{
+                font-size: 11px;
+                color: var(--text-dim);
+                font-weight: 500;
+                letter-spacing: 0.3px;
+              }}
+              .no-metrics {{
+                background: var(--bg-card2);
+                border: 1px dashed var(--border);
+                border-radius: 8px;
+                padding: 20px;
+                text-align: center;
+                font-size: 13px;
+                color: var(--text-dim);
+                margin-bottom: 20px;
+              }}
+
+              /* ── Card Footer ─────────────────────────── */
+              .card-footer {{ display: flex; }}
+              .btn-report {{
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 8px 16px;
+                background: var(--accent);
+                color: #fff;
+                text-decoration: none;
+                border-radius: 6px;
+                font-size: 13px;
+                font-weight: 600;
+                transition: background 0.2s, transform 0.1s;
+              }}
+              .btn-report:hover {{
+                background: #388bfd;
+                transform: translateX(2px);
+              }}
+              .btn-report.disabled {{
+                background: var(--bg-card2);
+                color: var(--text-dim);
+                border: 1px solid var(--border);
+                cursor: not-allowed;
+              }}
+
+              /* ── Footer ─────────────────────────────── */
+              .footer {{
+                text-align: center;
+                padding: 24px;
+                font-size: 12px;
+                color: var(--text-dim);
+                border-top: 1px solid var(--border);
+              }}
+              .footer a {{ color: var(--blue); text-decoration: none; }}
+              .footer a:hover {{ text-decoration: underline; }}
+
+              @media (max-width: 600px) {{
+                .cards-grid {{ grid-template-columns: 1fr; }}
+                .metrics-grid {{ grid-template-columns: repeat(2, 1fr); }}
+                .meta-bar {{ justify-content: flex-start; }}
+              }}
+            </style>
           </head>
           <body>
-            <h1>UHR ADT Performance Test Reports</h1>
-            <ul>
-              <li><a href="smoke/index.html">Smoke Test Report</a></li>
-              <li><a href="load/index.html">Load Test Report</a></li>
-              <li><a href="stress/index.html">Stress Test Report</a></li>
-              <li><a href="spike/index.html">Spike Test Report</a></li>
-            </ul>
-            <p>Generated: ${{ github.event.head_commit.timestamp }}</p>
-            <p>Commit: ${{ github.sha }}</p>
-            <p>Branch: ${{ github.ref_name }}</p>
-          </body>
-          </html>
-          HTMLEOF
-          if [ -d "all-reports/smoke-report" ]; then cp -r all-reports/smoke-report public/smoke; fi
-          if [ -d "all-reports/load-report" ]; then cp -r all-reports/load-report public/load; fi
-          if [ -d "all-reports/stress-report" ]; then cp -r all-reports/stress-report public/stress; fi
-          if [ -d "all-reports/spike-report" ]; then cp -r all-reports/spike-report public/spike; fi
-          echo "Pages structure prepared."
-          ls -la public/
 
-      - name: Setup Pages
+            <!-- Top Banner -->
+            <header class="top-banner">
+              <div class="banner-label">Waseel Health · UHR ADT Events</div>
+              <h1 class="banner-title">Performance Test Dashboard</h1>
+              <p class="banner-sub">JMeter results across all test scenarios</p>
+              <span class="overall-badge overall-{ov_class}">{ov_label}</span>
+            </header>
+
+            <!-- Run Metadata Bar -->
+            <div class="meta-bar">
+              <span class="meta-item">📅 <strong>{now}</strong></span>
+              <span class="meta-dot">·</span>
+              <span class="meta-item">🌿 Branch: <strong>{branch}</strong></span>
+              <span class="meta-dot">·</span>
+              <span class="meta-item">🔖 Commit: <strong>{sha}</strong></span>
+              <span class="meta-dot">·</span>
+              <span class="meta-item">👤 Triggered by: <strong>{actor}</strong></span>
+              <span class="meta-dot">·</span>
+              <span class="meta-item">⚡ Event: <strong>{event}</strong></span>
+              <span class="meta-dot">·</span>
+              <span class="meta-item"><a href="{run_url}" target="_blank">View Actions Run →</a></span>
+            </div>
+
+            <!-- Cards -->
+            <main class="main">
+              <p class="section-title">Test Results</p>
+              <div class="cards-grid">
+                {cards_html}
+              </div>
+            </main>
+
+            <!-- Footer -->
+            <footer class="footer">
+              Generated by GitHub Actions &nbsp;·&nbsp;
+              <a href="{run_url}" target="_blank">Run #{run_id}</a> &nbsp;·&nbsp;
+              UHR ADT Events Performance Testing Pipeline
+            </footer>
+
+          </body>
+          </html>"""
+
+          os.makedirs('public', exist_ok=True)
+          with open('public/index.html', 'w', encoding='utf-8') as f:
+              f.write(html)
+          print("✅ Dashboard index.html generated.")
+          PYEOF
+
+      # ── Copy JMeter HTML sub-reports into public/ ─────────
+      - name: Copy sub-reports into public folder
+        if: always()
+        run: |
+          for test in smoke load stress spike; do
+            src="results/${test}/html_report"
+            dst="public/${test}"
+            if [ -d "$src" ]; then
+              cp -r "$src" "$dst"
+              echo "✅ Copied ${test} report → public/${test}/"
+            else
+              echo "⚠️  No HTML report found for ${test} — skipping"
+            fi
+          done
+          echo ""
+          echo "📁 public/ contents:"
+          find public/ -maxdepth 2 | sort
+
+      - name: Setup GitHub Pages
         uses: actions/configure-pages@v5
 
       - name: Upload to GitHub Pages
@@ -346,38 +768,40 @@ jobs:
         uses: actions/deploy-pages@v4
 
   # ════════════════════════════════════════════════════════════
-  # JOB 6: Notify Microsoft Teams
+  # JOB 3 — Notify Microsoft Teams
   # ════════════════════════════════════════════════════════════
   notify-teams:
     name: "Send Teams Notification"
     runs-on: ubuntu-latest
-    needs: [smoke-test, load-test, stress-test, spike-test]
+    needs: [run-all-tests, publish-report]
     if: always()
 
     steps:
       - name: Send notification to Teams
+        if: ${{ secrets.MSTEAMS_WEBHOOK_URL != '' }}
         uses: skitionek/msteams-notify@v1
-        if: env.MSTEAMS_WEBHOOK_URL != ''
         env:
           MSTEAMS_WEBHOOK_URL: ${{ secrets.MSTEAMS_WEBHOOK_URL }}
         with:
           webhook_uri: ${{ secrets.MSTEAMS_WEBHOOK_URL }}
-          title: "Performance Tests Completed"
-          summary: "UHR ADT Performance Test Results"
+          title: "UHR ADT Performance Tests Completed"
+          summary: "Performance Test Results — ${{ github.ref_name }}"
           text: |
-            **Branch:** ${{ github.ref_name }}
-            **Commit:** ${{ github.sha }}
-            **Triggered by:** ${{ github.actor }}
+            **Branch:** `${{ github.ref_name }}`
+            **Commit:** `${{ github.sha }}`
+            **Triggered by:** ${{ github.actor }} (${{ github.event_name }})
 
-            **Test Status:**
-            - Smoke: ${{ needs.smoke-test.result }}
-            - Load: ${{ needs.load-test.result }}
-            - Stress: ${{ needs.stress-test.result }}
-            - Spike: ${{ needs.spike-test.result }}
+            **Test Results:**
+            | Test   | Status |
+            |--------|--------|
+            | 🔵 Smoke (2 VU, 60s)     | ${{ needs.run-all-tests.outputs.smoke_status }} |
+            | 🟡 Load (50 VU, 10min)   | ${{ needs.run-all-tests.outputs.load_status }} |
+            | 🟠 Stress (150 VU, 5min) | ${{ needs.run-all-tests.outputs.stress_status }} |
+            | 🔴 Spike (200 VU, 2min)  | ${{ needs.run-all-tests.outputs.spike_status }} |
 
-            **Report:** ${{ needs.publish-report.outputs.page_url || 'N/A' }}
+            📊 **Dashboard:** ${{ needs.publish-report.outputs.page_url }}
           themeColor: >-
-            ${{ needs.smoke-test.result == 'success' &&
-                needs.load-test.result == 'success' &&
-                needs.stress-test.result == 'success' &&
-                needs.spike-test.result == 'success' && '00FF00' || 'FF0000' }}
+            ${{ needs.run-all-tests.outputs.smoke_status == 'success' &&
+                needs.run-all-tests.outputs.load_status == 'success' &&
+                needs.run-all-tests.outputs.stress_status == 'success' &&
+                needs.run-all-tests.outputs.spike_status == 'success' && '00C853' || 'D32F2F' }}
