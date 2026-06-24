@@ -127,6 +127,21 @@ jobs:
           fi
           echo "✅ All Keycloak secrets validated."
 
+      # ── Debug: Test Keycloak with curl ─────────────────────
+      - name: "🔍 Curl Test Keycloak"
+        run: |
+          echo "Testing Keycloak token endpoint with curl..."
+          HTTP_CODE=$(curl -s -o /tmp/kc_resp.txt -w "%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=password&client_id=${KC_CLIENT_ID}&client_secret=${KC_CLIENT_SECRET}&username=${KC_USERNAME}&password=${KC_PASSWORD}" \
+            --connect-timeout 10 --max-time 15 \
+            "https://qa-iam.waseel.com/realms/waseel-stg/protocol/openid-connect/token")
+          echo "HTTP Status: ${HTTP_CODE}"
+          echo "Response:"
+          cat /tmp/kc_resp.txt
+          echo ""
+
       # ── Test 1: Smoke ──────────────────────────────────────
       - name: "🔵 Smoke Test (2 VU, 60s)"
         id: smoke
