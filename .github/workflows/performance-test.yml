@@ -127,20 +127,70 @@ jobs:
           fi
           echo "✅ All Keycloak secrets validated."
 
-      # ── Debug: Test Keycloak with curl ─────────────────────
-      - name: "🔍 Curl Test Keycloak"
+      # ── Debug: Comprehensive Keycloak diagnostics ──────────
+      - name: "🔍 Diagnose Keycloak Token Generation"
         run: |
-          echo "Testing Keycloak token endpoint with curl..."
-          HTTP_CODE=$(curl -s -o /tmp/kc_resp.txt -w "%{http_code}" \
+          KC_URL="https://qa-iam.waseel.com/realms/waseel-stg/protocol/openid-connect/token"
+          echo "══════════════════════════════════════════════════"
+          echo "  KEYCLOAK TOKEN GENERATION DIAGNOSTICS"
+          echo "══════════════════════════════════════════════════"
+          echo ""
+          echo "Endpoint: ${KC_URL}"
+          echo "Client ID: ${KC_CLIENT_ID} (len: ${#KC_CLIENT_ID})"
+          echo "Username:  ${KC_USERNAME} (len: ${#KC_USERNAME})"
+          echo "Secret:    [${KC_CLIENT_ID:0:3}***] (len: ${#KC_CLIENT_SECRET})"
+          echo "Password:  [${KC_PASSWORD:0:3}***] (len: ${#KC_PASSWORD})"
+          echo ""
+
+          # Test 1: Basic connectivity
+          echo "── Test 1: Basic connectivity (GET realm) ──"
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "https://qa-iam.waseel.com/realms/waseel-stg" 2>&1)
+          echo "  HTTP Status: ${HTTP}"
+          echo ""
+
+          # Test 2: Token with verbose output
+          echo "── Test 2: Token request (verbose) ──"
+          curl -v -X POST \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=password&client_id=${KC_CLIENT_ID}&client_secret=${KC_CLIENT_SECRET}&username=${KC_USERNAME}&password=${KC_PASSWORD}" \
+            --connect-timeout 10 --max-time 15 \
+            "${KC_URL}" 2>&1 | grep -E "^(< HTTP|< Location|< Content|{|})"
+          echo ""
+
+          # Test 3: Token with full response
+          echo "── Test 3: Token request (full response) ──"
+          RESP=$(curl -s -w "\n---HTTP_CODE:%{http_code}---" \
             -X POST \
             -H "Content-Type: application/x-www-form-urlencoded" \
             -d "grant_type=password&client_id=${KC_CLIENT_ID}&client_secret=${KC_CLIENT_SECRET}&username=${KC_USERNAME}&password=${KC_PASSWORD}" \
             --connect-timeout 10 --max-time 15 \
-            "https://qa-iam.waseel.com/realms/waseel-stg/protocol/openid-connect/token")
-          echo "HTTP Status: ${HTTP_CODE}"
-          echo "Response:"
-          cat /tmp/kc_resp.txt
+            "${KC_URL}")
+          echo "${RESP}"
           echo ""
+
+          # Test 4: Check if it's a redirect issue
+          echo "── Test 4: Token request (follow redirects) ──"
+          RESP2=$(curl -sL -w "\n---HTTP_CODE:%{http_code}---" \
+            -X POST \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=password&client_id=${KC_CLIENT_ID}&client_secret=${KC_CLIENT_SECRET}&username=${KC_USERNAME}&password=${KC_PASSWORD}" \
+            --connect-timeout 10 --max-time 15 \
+            "${KC_URL}")
+          echo "${RESP2}"
+          echo ""
+
+          # Test 5: Try with explicit encoding
+          echo "── Test 5: Token request (explicit URL encoding) ──"
+          BODY="grant_type=password&client_id=$(printf '%s' "${KC_CLIENT_ID}" | jq -sRr @uri)&client_secret=$(printf '%s' "${KC_CLIENT_SECRET}" | jq -sRr @uri)&username=$(printf '%s' "${KC_USERNAME}" | jq -sRr @uri)&password=$(printf '%s' "${KC_PASSWORD}" | jq -sRr @uri)"
+          RESP3=$(curl -s -w "\n---HTTP_CODE:%{http_code}---" \
+            -X POST \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "${BODY}" \
+            --connect-timeout 10 --max-time 15 \
+            "${KC_URL}")
+          echo "${RESP3}"
+          echo ""
+          echo "══════════════════════════════════════════════════"
 
       # ── Debug: Print env vars for JMeter ──────────────────
       - name: "🔍 Print Env Vars"
@@ -345,33 +395,105 @@ jobs:
     runs-on: ubuntu-latest
     needs: [run-all-tests, publish-report]
     if: always()
-    env:
-      MSTEAMS_WEBHOOK_URL: ${{ secrets.MSTEAMS_WEBHOOK_URL }}
 
     steps:
+      - name: Determine overall status
+        id: status
+        run: |
+          SMOKE="${{ needs.run-all-tests.outputs.smoke_status }}"
+          LOAD="${{ needs.run-all-tests.outputs.load_status }}"
+          STRESS="${{ needs.run-all-tests.outputs.stress_status }}"
+          SPIKE="${{ needs.run-all-tests.outputs.spike_status }}"
+
+          if [ "$SMOKE" = "success" ] && [ "$LOAD" = "success" ] && [ "$STRESS" = "success" ] && [ "$SPIKE" = "success" ]; then
+            echo "overall=success" >> $GITHUB_OUTPUT
+            echo "color=00C853" >> $GITHUB_OUTPUT
+            echo "emoji=✅" >> $GITHUB_OUTPUT
+          else
+            echo "overall=failure" >> $GITHUB_OUTPUT
+            echo "color=D32F2F" >> $GITHUB_OUTPUT
+            echo "emoji=❌" >> $GITHUB_OUTPUT
+          fi
+
       - name: Send notification to Teams
-        if: env.MSTEAMS_WEBHOOK_URL != ''
-        uses: skitionek/msteams-notify@v1
-        with:
-          webhook_uri: ${{ secrets.MSTEAMS_WEBHOOK_URL }}
-          title: "UHR ADT Performance Tests Completed"
-          summary: "Performance Test Results — ${{ github.ref_name }}"
-          text: |
-            **Branch:** `${{ github.ref_name }}`
-            **Commit:** `${{ github.sha }}`
-            **Triggered by:** ${{ github.actor }} (${{ github.event_name }})
+        if: secrets.MSTEAMS_WEBHOOK_URL != ''
+        run: |
+          WEBHOOK_URL="${{ secrets.MSTEAMS_WEBHOOK_URL }}"
+          OVERALL="${{ steps.status.outputs.overall }}"
+          COLOR="${{ steps.status.outputs.color }}"
+          EMOJI="${{ steps.status.outputs.emoji }}"
+          BRANCH="${{ github.ref_name }}"
+          COMMIT="${{ github.sha }}"
+          ACTOR="${{ github.actor }}"
+          EVENT="${{ github.event_name }}"
+          DASHBOARD="${{ needs.publish-report.outputs.page_url }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-            **Test Results:**
-            | Test   | Status |
-            |--------|--------|
-            | 🔵 Smoke (2 VU, 60s)     | ${{ needs.run-all-tests.outputs.smoke_status }} |
-            | 🟡 Load (50 VU, 10min)   | ${{ needs.run-all-tests.outputs.load_status }} |
-            | 🟠 Stress (150 VU, 5min) | ${{ needs.run-all-tests.outputs.stress_status }} |
-            | 🔴 Spike (200 VU, 2min)  | ${{ needs.run-all-tests.outputs.spike_status }} |
+          # Build status badges
+          SMOKE_STATUS="${{ needs.run-all-tests.outputs.smoke_status }}"
+          LOAD_STATUS="${{ needs.run-all-tests.outputs.load_status }}"
+          STRESS_STATUS="${{ needs.run-all-tests.outputs.stress_status }}"
+          SPIKE_STATUS="${{ needs.run-all-tests.outputs.spike_status }}"
 
-            📊 **Dashboard:** ${{ needs.publish-report.outputs.page_url }}
-          themeColor: >-
-            ${{ needs.run-all-tests.outputs.smoke_status == 'success' &&
-                needs.run-all-tests.outputs.load_status == 'success' &&
-                needs.run-all-tests.outputs.stress_status == 'success' &&
-                needs.run-all-tests.outputs.spike_status == 'success' && '00C853' || 'D32F2F' }}
+          SMOKE_EMOJI=$([ "$SMOKE_STATUS" = "success" ] && echo "✅" || echo "❌")
+          LOAD_EMOJI=$([ "$LOAD_STATUS" = "success" ] && echo "✅" || echo "❌")
+          STRESS_EMOJI=$([ "$STRESS_STATUS" = "success" ] && echo "✅" || echo "❌")
+          SPIKE_EMOJI=$([ "$SPIKE_STATUS" = "success" ] && echo "✅" || echo "❌")
+
+          # Build the adaptive card JSON
+          cat > /tmp/teams_payload.json << EOF
+          {
+            "@type": "MessageCard",
+            "@context": "http://schema.org/extensions",
+            "themeColor": "${COLOR}",
+            "summary": "UHR ADT Performance Tests - ${OVERALL}",
+            "sections": [
+              {
+                "activityTitle": "${EMOJI} UHR ADT Performance Tests Completed",
+                "activitySubtitle": "Branch: ${BRANCH} | Triggered by: ${ACTOR}",
+                "facts": [
+                  { "name": "Commit", "value": "${COMMIT:0:8}" },
+                  { "name": "Event", "value": "${EVENT}" },
+                  { "name": "Overall Status", "value": "${OVERALL}" }
+                ]
+              },
+              {
+                "title": "Test Results",
+                "facts": [
+                  { "name": "🔵 Smoke (2 VU, 60s)", "value": "${SMOKE_EMOJI} ${SMOKE_STATUS}" },
+                  { "name": "🟡 Load (50 VU, 10min)", "value": "${LOAD_EMOJI} ${LOAD_STATUS}" },
+                  { "name": "🟠 Stress (150 VU, 5min)", "value": "${STRESS_EMOJI} ${STRESS_STATUS}" },
+                  { "name": "🔴 Spike (200 VU, 2min)", "value": "${SPIKE_EMOJI} ${SPIKE_STATUS}" }
+                ]
+              }
+            ],
+            "potentialAction": [
+              {
+                "@type": "OpenUri",
+                "name": "📊 View Dashboard",
+                "targets": [{ "os": "default", "uri": "${DASHBOARD}" }]
+              },
+              {
+                "@type": "OpenUri",
+                "name": "🔗 View Workflow Run",
+                "targets": [{ "os": "default", "uri": "${RUN_URL}" }]
+              }
+            ]
+          }
+          EOF
+
+          echo "Sending notification to Teams..."
+          HTTP_CODE=$(curl -s -o /tmp/teams_response.txt -w "%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -d @/tmp/teams_payload.json \
+            "${WEBHOOK_URL}")
+
+          echo "Teams response HTTP: ${HTTP_CODE}"
+          cat /tmp/teams_response.txt
+
+          if [ "${HTTP_CODE}" != "200" ]; then
+            echo "⚠️ Teams notification may have failed"
+          else
+            echo "✅ Teams notification sent successfully"
+          fi

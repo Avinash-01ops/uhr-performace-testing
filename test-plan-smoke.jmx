@@ -79,7 +79,7 @@ FIXES APPLIED vs previous version:
         <intProp name="ThreadGroup.num_threads">1</intProp>
         <intProp name="ThreadGroup.ramp_time">1</intProp>
         <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
-        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <stringProp name="ThreadGroup.on_sample_error">stoptest</stringProp>
         <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController">
           <stringProp name="LoopController.loops">1</stringProp>
           <boolProp name="LoopController.continue_forever">false</boolProp>
@@ -95,105 +95,82 @@ FIXES APPLIED vs previous version:
           </collectionProp>
         </HeaderManager>
         <hashTree/>
-        <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="Keycloak - Generate Token" enabled="true">
+        <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor" testname="Debug: Log KC Variables" enabled="true">
           <stringProp name="cacheKey">true</stringProp>
           <stringProp name="filename"></stringProp>
           <stringProp name="parameters"></stringProp>
           <stringProp name="script">
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
-import java.io.BufferedReader
-import java.io.InputStreamReader
-
-// Read directly from OS environment variables
-String clientId = System.getenv("KC_CLIENT_ID") ?: "csbridge"
-String clientSecret = System.getenv("KC_CLIENT_SECRET") ?: ""
-String username = System.getenv("KC_USERNAME") ?: "testuser-csbridge"
-String password = System.getenv("KC_PASSWORD") ?: ""
-
-log.info("=== KC REQUEST === clientId=" + clientId + " | secretLen=" + clientSecret.length() + " | username=" + username + " | passLen=" + password.length())
-
-String body = "grant_type=password" +
-  "&amp;client_id=" + URLEncoder.encode(clientId, "UTF-8") +
-  "&amp;client_secret=" + URLEncoder.encode(clientSecret, "UTF-8") +
-  "&amp;username=" + URLEncoder.encode(username, "UTF-8") +
-  "&amp;password=" + URLEncoder.encode(password, "UTF-8")
-
-URL url = new URL("https://qa-iam.waseel.com/realms/waseel-stg/protocol/openid-connect/token")
-HttpURLConnection conn = (HttpURLConnection) url.openConnection()
-conn.setRequestMethod("POST")
-conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-conn.setRequestProperty("Accept", "application/json")
-conn.setDoOutput(true)
-conn.setInstanceFollowRedirects(true)
-conn.setConnectTimeout(10000)
-conn.setReadTimeout(15000)
-
-// Write body
-conn.getOutputStream().write(body.getBytes("UTF-8"))
-conn.getOutputStream().flush()
-conn.getOutputStream().close()
-
-int responseCode = conn.getResponseCode()
-log.info("=== KC RAW RESPONSE CODE === " + responseCode)
-
-// Read response body safely
-StringBuilder sb = new StringBuilder()
-try {
-    InputStream stream = (responseCode &lt; 400) ? conn.getInputStream() : conn.getErrorStream()
-    if (stream != null) {
-        BufferedReader br = new BufferedReader(new InputStreamReader(stream, "UTF-8"))
-        String line
-        while ((line = br.readLine()) != null) {
-            sb.append(line)
-        }
-        br.close()
-    }
-} catch (Exception e) {
-    log.warn("=== KC READ ERROR === " + e.getMessage())
-}
-String responseBody = sb.toString()
-log.info("=== KC RESPONSE === Code: " + responseCode + " | Body: [" + responseBody + "]")
-
-if (responseCode == 200 &amp;&amp; responseBody != null &amp;&amp; !responseBody.isEmpty()) {
-    try {
-        def json = new groovy.json.JsonSlurper().parseText(responseBody)
-        String token = json.access_token
-        if (token != null &amp;&amp; !token.isEmpty()) {
-            props.put("GLOBAL_AUTH_TOKEN", token)
-            vars.put("access_token_local", token)
-            log.info("=== TOKEN ACQUIRED === Length: " + token.length() + " | Prefix: " + token.substring(0, Math.min(20, token.length())))
-            SampleResult.setSuccessful(true)
-            SampleResult.setResponseData(responseBody, "UTF-8")
-        } else {
-            log.error("=== TOKEN FIELD MISSING IN RESPONSE ===")
-            SampleResult.setSuccessful(false)
-            SampleResult.setResponseData(responseBody, "UTF-8")
-        }
-    } catch (Exception e) {
-        log.error("=== JSON PARSE ERROR === " + e.getMessage() + " | Body was: " + responseBody)
-        SampleResult.setSuccessful(false)
-        SampleResult.setResponseData(responseBody, "UTF-8")
-    }
-} else {
-    log.error("=== TOKEN REQUEST FAILED === HTTP " + responseCode + ": " + responseBody)
-    SampleResult.setSuccessful(false)
-    SampleResult.setResponseData(responseBody ?: "empty", "UTF-8")
-}
+log.info(&quot;=== KC DEBUG === KC_CLIENT_ID=&quot; + vars.get(&quot;KC_CLIENT_ID&quot;) + &quot; | KC_CLIENT_SECRET len=&quot; + (vars.get(&quot;KC_CLIENT_SECRET&quot;) != null ? vars.get(&quot;KC_CLIENT_SECRET&quot;).length() : &quot;null&quot;) + &quot; | KC_USERNAME=&quot; + vars.get(&quot;KC_USERNAME&quot;) + &quot; | KC_PASSWORD len=&quot; + (vars.get(&quot;KC_PASSWORD&quot;) != null ? vars.get(&quot;KC_PASSWORD&quot;).length() : &quot;null&quot;) + &quot; | KC_HOST=&quot; + vars.get(&quot;KC_HOST&quot;) + &quot; | KC_TOKEN_PATH=&quot; + vars.get(&quot;KC_TOKEN_PATH&quot;));
           </stringProp>
           <stringProp name="scriptLanguage">groovy</stringProp>
-        </JSR223Sampler>
+        </JSR223PreProcessor>
+        <hashTree/>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Keycloak - Generate Token">
+          <intProp name="HTTPSampler.connect_timeout">10000</intProp>
+          <intProp name="HTTPSampler.response_timeout">15000</intProp>
+          <stringProp name="HTTPSampler.domain">${KC_HOST}</stringProp>
+          <stringProp name="HTTPSampler.port">443</stringProp>
+          <stringProp name="HTTPSampler.protocol">https</stringProp>
+          <stringProp name="HTTPSampler.path">${KC_TOKEN_PATH}</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.postBodyRaw">false</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="User Defined Variables">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="client_id" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                <stringProp name="Argument.name">client_id</stringProp>
+                <stringProp name="Argument.value">${KC_CLIENT_ID}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+              <elementProp name="client_secret" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                <stringProp name="Argument.name">client_secret</stringProp>
+                <stringProp name="Argument.value">${KC_CLIENT_SECRET}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+              <elementProp name="grant_type" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                <stringProp name="Argument.name">grant_type</stringProp>
+                <stringProp name="Argument.value">password</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+              <elementProp name="username" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                <stringProp name="Argument.name">username</stringProp>
+                <stringProp name="Argument.value">${KC_USERNAME}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+              <elementProp name="password" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                <stringProp name="Argument.name">password</stringProp>
+                <stringProp name="Argument.value">${KC_PASSWORD}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+        </HTTPSamplerProxy>
         <hashTree>
           <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Assert Token 200" enabled="true">
             <collectionProp name="Asserion.test_strings">
               <stringProp name="49586">200</stringProp>
             </collectionProp>
-            <stringProp name="Assertion.custom_message">Keycloak token request FAILED.</stringProp>
+            <stringProp name="Assertion.custom_message">Keycloak token request FAILED (not 200). Check KC_HOST, KC_TOKEN_PATH, KC_CLIENT_ID, KC_USERNAME, KC_PASSWORD in User Defined Variables.</stringProp>
             <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
             <boolProp name="Assertion.assume_success">false</boolProp>
             <intProp name="Assertion.test_type">8</intProp>
           </ResponseAssertion>
+          <hashTree/>
+          <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor" testname="Debug: Log Response" enabled="true">
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="script">
+log.info(&quot;=== KC RESPONSE DEBUG === URL=&quot; + prev.getUrlAsString() + &quot; | Status=&quot; + prev.getResponseCode() + &quot; | Body=&quot; + prev.getResponseDataAsString());
+            </stringProp>
+            <stringProp name="scriptLanguage">groovy</stringProp>
+          </JSR223PostProcessor>
           <hashTree/>
           <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="Extract access_token" enabled="true">
             <stringProp name="JSONPostProcessor.referenceNames">access_token_local</stringProp>
@@ -207,12 +184,13 @@ if (responseCode == 200 &amp;&amp; responseBody != null &amp;&amp; !responseBody
             <stringProp name="filename"></stringProp>
             <stringProp name="parameters"></stringProp>
             <stringProp name="script">
-String token = vars.get("access_token_local");
-if (token != null &amp;&amp; !token.equals("TOKEN_NOT_FOUND") &amp;&amp; !token.isEmpty()) {
-    props.put("GLOBAL_AUTH_TOKEN", token);
-    log.info("=== TOKEN STORED. Length: " + token.length() + " | Prefix: " + token.substring(0, Math.min(30, token.length())));
+String token = vars.get(&quot;access_token_local&quot;);
+if (token != null &amp;&amp; !token.equals(&quot;TOKEN_NOT_FOUND&quot;) &amp;&amp; !token.isEmpty()) {
+    props.put(&quot;GLOBAL_AUTH_TOKEN&quot;, token);
+    log.info(&quot;=== TOKEN ACQUIRED. Length: &quot; + token.length() + &quot; | Prefix: &quot; + token.substring(0, Math.min(30, token.length())));
 } else {
-    log.warn("=== TOKEN EXTRACTION FAILED - tests will run without auth token ===");
+    log.error(&quot;=== TOKEN EXTRACTION FAILED. Response body: &quot; + prev.getResponseDataAsString());
+    throw new Exception(&quot;Keycloak token not found in response - test aborted&quot;);
 }
             </stringProp>
             <stringProp name="scriptLanguage">groovy</stringProp>
@@ -234,7 +212,7 @@ if (token != null &amp;&amp; !token.equals("TOKEN_NOT_FOUND") &amp;&amp; !token.
         </elementProp>
       </ThreadGroup>
       <hashTree>
-        <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor" testname="Inject Bearer Token" enabled="true">
+        <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor" testname="Inject Bearer Token">
           <stringProp name="cacheKey">true</stringProp>
           <stringProp name="filename"></stringProp>
           <stringProp name="parameters"></stringProp>
@@ -250,7 +228,7 @@ if (token != null &amp;&amp; !token.isEmpty()) {
           <stringProp name="scriptLanguage">groovy</stringProp>
         </JSR223PreProcessor>
         <hashTree/>
-        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Authorization Header" enabled="true">
+        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Authorization Header">
           <collectionProp name="HeaderManager.headers">
             <elementProp name="Authorization" elementType="Header">
               <stringProp name="Header.name">Authorization</stringProp>
@@ -24932,7 +24910,7 @@ if (token != null &amp;&amp; !token.isEmpty()) {
         </GaussianRandomTimer>
         <hashTree/>
       </hashTree>
-      <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report" enabled="true">
+      <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report">
         <boolProp name="ResultCollector.error_logging">false</boolProp>
         <objProp>
           <name>saveConfig</name>
