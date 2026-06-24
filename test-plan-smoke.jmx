@@ -96,6 +96,16 @@ FIXES APPLIED vs previous version:
           </collectionProp>
         </HeaderManager>
         <hashTree />
+        <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor" testname="Debug: Log KC Variables" enabled="true">
+          <stringProp name="cacheKey">true</stringProp>
+          <stringProp name="filename"></stringProp>
+          <stringProp name="parameters"></stringProp>
+          <stringProp name="script">
+log.info("=== KC DEBUG === KC_CLIENT_ID=" + vars.get("KC_CLIENT_ID") + " | KC_CLIENT_SECRET len=" + (vars.get("KC_CLIENT_SECRET") != null ? vars.get("KC_CLIENT_SECRET").length() : "null") + " | KC_USERNAME=" + vars.get("KC_USERNAME") + " | KC_PASSWORD len=" + (vars.get("KC_PASSWORD") != null ? vars.get("KC_PASSWORD").length() : "null") + " | KC_HOST=" + vars.get("KC_HOST") + " | KC_TOKEN_PATH=" + vars.get("KC_TOKEN_PATH"));
+          </stringProp>
+          <stringProp name="scriptLanguage">groovy</stringProp>
+        </JSR223PreProcessor>
+        <hashTree />
         <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Keycloak - Generate Token" enabled="true">
           <intProp name="HTTPSampler.connect_timeout">10000</intProp>
           <intProp name="HTTPSampler.response_timeout">15000</intProp>
@@ -152,6 +162,16 @@ FIXES APPLIED vs previous version:
             <boolProp name="Assertion.assume_success">false</boolProp>
             <intProp name="Assertion.test_type">8</intProp>
           </ResponseAssertion>
+          <hashTree />
+          <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor" testname="Debug: Log Response" enabled="true">
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="script">
+log.info("=== KC RESPONSE DEBUG === URL=" + prev.getUrlAsString() + " | Status=" + prev.getResponseCode() + " | Body=" + prev.getResponseDataAsString());
+            </stringProp>
+            <stringProp name="scriptLanguage">groovy</stringProp>
+          </JSR223PostProcessor>
           <hashTree />
           <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="Extract access_token" enabled="true">
             <stringProp name="JSONPostProcessor.referenceNames">access_token_local</stringProp>
