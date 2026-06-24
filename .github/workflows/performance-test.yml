@@ -102,6 +102,12 @@ jobs:
             -e \
             -o results/smoke/html_report
           echo "✅ Smoke Test finished."
+          if grep -q "false" results/smoke/results.csv; then
+            echo "❌ ERROR detected in results.csv:"
+            cat results/smoke/results.csv
+            echo "--- JMETER.LOG ---"
+            cat jmeter.log
+          fi
 
       # ── Test 2: Load ───────────────────────────────────────
       - name: "🟡 Load Test (50 VU, 10min)"
