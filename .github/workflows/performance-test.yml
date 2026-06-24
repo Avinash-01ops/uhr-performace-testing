@@ -142,6 +142,17 @@ jobs:
           cat /tmp/kc_resp.txt
           echo ""
 
+      # ── Debug: Print env vars for JMeter ──────────────────
+      - name: "🔍 Print Env Vars"
+        run: |
+          echo "Environment variables visible to JMeter:"
+          echo "  KC_CLIENT_ID=[${KC_CLIENT_ID:0:3}***] len=${#KC_CLIENT_ID}"
+          echo "  KC_CLIENT_SECRET=[${KC_CLIENT_SECRET:0:3}***] len=${#KC_CLIENT_SECRET}"
+          echo "  KC_USERNAME=[${KC_USERNAME:0:3}***] len=${#KC_USERNAME}"
+          echo "  KC_PASSWORD=[${KC_PASSWORD:0:3}***] len=${#KC_PASSWORD}"
+          echo "  All env vars with KC:"
+          env | grep -i "^KC_" || echo "  (none found)"
+
       # ── Test 1: Smoke ──────────────────────────────────────
       - name: "🔵 Smoke Test (2 VU, 60s)"
         id: smoke
