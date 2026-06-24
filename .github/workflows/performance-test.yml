@@ -87,6 +87,46 @@ jobs:
       - name: Create results directories
         run: mkdir -p results/{smoke,load,stress,spike}
 
+      # ── Validate Keycloak secrets are configured ──────────
+      - name: "🔑 Validate Keycloak Secrets"
+        run: |
+          echo "Checking Keycloak secrets..."
+          ERRORS=0
+          if [ -z "${KC_CLIENT_ID}" ] || [ "${KC_CLIENT_ID}" = "" ]; then
+            echo "❌ KC_CLIENT_ID is empty or not set!"
+            ERRORS=$((ERRORS + 1))
+          else
+            echo "✅ KC_CLIENT_ID is set (length: ${#KC_CLIENT_ID})"
+          fi
+          if [ -z "${KC_CLIENT_SECRET}" ] || [ "${KC_CLIENT_SECRET}" = "" ]; then
+            echo "❌ KC_CLIENT_SECRET is empty or not set!"
+            ERRORS=$((ERRORS + 1))
+          else
+            echo "✅ KC_CLIENT_SECRET is set (length: ${#KC_CLIENT_SECRET})"
+          fi
+          if [ -z "${KC_USERNAME}" ] || [ "${KC_USERNAME}" = "" ]; then
+            echo "❌ KC_USERNAME is empty or not set!"
+            ERRORS=$((ERRORS + 1))
+          else
+            echo "✅ KC_USERNAME is set (length: ${#KC_USERNAME})"
+          fi
+          if [ -z "${KC_PASSWORD}" ] || [ "${KC_PASSWORD}" = "" ]; then
+            echo "❌ KC_PASSWORD is empty or not set!"
+            ERRORS=$((ERRORS + 1))
+          else
+            echo "✅ KC_PASSWORD is set (length: ${#KC_PASSWORD})"
+          fi
+          if [ $ERRORS -gt 0 ]; then
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "  ⚠️  ${ERRORS} Keycloak secret(s) missing!"
+            echo "  Go to Settings → Secrets → Actions"
+            echo "  Add: KC_CLIENT_ID, KC_CLIENT_SECRET, KC_USERNAME, KC_PASSWORD"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            exit 1
+          fi
+          echo "✅ All Keycloak secrets validated."
+
       # ── Test 1: Smoke ──────────────────────────────────────
       - name: "🔵 Smoke Test (2 VU, 60s)"
         id: smoke
@@ -98,16 +138,24 @@ jobs:
           $JMETER_HOME/bin/jmeter \
             -n \
             -t test-plan-smoke.jmx \
+            -J"KC_CLIENT_ID=${KC_CLIENT_ID}" \
+            -J"KC_CLIENT_SECRET=${KC_CLIENT_SECRET}" \
+            -J"KC_USERNAME=${KC_USERNAME}" \
+            -J"KC_PASSWORD=${KC_PASSWORD}" \
             -l results/smoke/results.csv \
             -e \
             -o results/smoke/html_report
-          echo "✅ Smoke Test finished."
-          if grep -q "false" results/smoke/results.csv; then
-            echo "❌ ERROR detected in results.csv:"
-            cat results/smoke/results.csv
-            echo "--- JMETER.LOG ---"
-            cat jmeter.log
+          EXIT_CODE=$?
+          echo "✅ Smoke Test finished with exit code: ${EXIT_CODE}"
+          if [ -f results/smoke/results.csv ] && grep -q "false" results/smoke/results.csv; then
+            echo "❌ ERROR rows detected in results.csv:"
+            grep "false" results/smoke/results.csv | head -5
           fi
+          if [ -f jmeter.log ]; then
+            echo "--- Last 30 lines of jmeter.log ---"
+            tail -30 jmeter.log
+          fi
+          exit ${EXIT_CODE}
 
       # ── Test 2: Load ───────────────────────────────────────
       - name: "🟡 Load Test (50 VU, 10min)"
@@ -120,10 +168,20 @@ jobs:
           $JMETER_HOME/bin/jmeter \
             -n \
             -t test-plan-load.jmx \
+            -J"KC_CLIENT_ID=${KC_CLIENT_ID}" \
+            -J"KC_CLIENT_SECRET=${KC_CLIENT_SECRET}" \
+            -J"KC_USERNAME=${KC_USERNAME}" \
+            -J"KC_PASSWORD=${KC_PASSWORD}" \
             -l results/load/results.csv \
             -e \
             -o results/load/html_report
-          echo "✅ Load Test finished."
+          EXIT_CODE=$?
+          echo "✅ Load Test finished with exit code: ${EXIT_CODE}"
+          if [ -f jmeter.log ]; then
+            echo "--- Last 30 lines of jmeter.log ---"
+            tail -30 jmeter.log
+          fi
+          exit ${EXIT_CODE}
 
       # ── Test 3: Stress ─────────────────────────────────────
       - name: "🟠 Stress Test (150 VU, 5min)"
@@ -136,10 +194,20 @@ jobs:
           $JMETER_HOME/bin/jmeter \
             -n \
             -t test-plan-stress.jmx \
+            -J"KC_CLIENT_ID=${KC_CLIENT_ID}" \
+            -J"KC_CLIENT_SECRET=${KC_CLIENT_SECRET}" \
+            -J"KC_USERNAME=${KC_USERNAME}" \
+            -J"KC_PASSWORD=${KC_PASSWORD}" \
             -l results/stress/results.csv \
             -e \
             -o results/stress/html_report
-          echo "✅ Stress Test finished."
+          EXIT_CODE=$?
+          echo "✅ Stress Test finished with exit code: ${EXIT_CODE}"
+          if [ -f jmeter.log ]; then
+            echo "--- Last 30 lines of jmeter.log ---"
+            tail -30 jmeter.log
+          fi
+          exit ${EXIT_CODE}
 
       # ── Test 4: Spike ──────────────────────────────────────
       - name: "🔴 Spike Test (200 VU, 2min)"
@@ -152,10 +220,20 @@ jobs:
           $JMETER_HOME/bin/jmeter \
             -n \
             -t test-plan-spike.jmx \
+            -J"KC_CLIENT_ID=${KC_CLIENT_ID}" \
+            -J"KC_CLIENT_SECRET=${KC_CLIENT_SECRET}" \
+            -J"KC_USERNAME=${KC_USERNAME}" \
+            -J"KC_PASSWORD=${KC_PASSWORD}" \
             -l results/spike/results.csv \
             -e \
             -o results/spike/html_report
-          echo "✅ Spike Test finished."
+          EXIT_CODE=$?
+          echo "✅ Spike Test finished with exit code: ${EXIT_CODE}"
+          if [ -f jmeter.log ]; then
+            echo "--- Last 30 lines of jmeter.log ---"
+            tail -30 jmeter.log
+          fi
+          exit ${EXIT_CODE}
 
       # ── Upload all raw results (CSV + HTML reports) ────────
       - name: Upload all test results
@@ -164,6 +242,15 @@ jobs:
         with:
           name: all-test-results
           path: results/
+          retention-days: 30
+
+      # ── Upload jmeter.log for diagnostics ──────────────────
+      - name: Upload jmeter.log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmeter-log
+          path: jmeter.log
           retention-days: 30
 
   # ════════════════════════════════════════════════════════════
