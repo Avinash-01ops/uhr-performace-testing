@@ -127,33 +127,6 @@ jobs:
           fi
           echo "✅ All Keycloak secrets validated."
 
-      # ── Debug: Test Keycloak endpoint directly ───────────
-      - name: "🔍 Test Keycloak Endpoint"
-        run: |
-          echo "Testing Keycloak token endpoint..."
-          echo "  KC_HOST: qa-iam.waseel.com"
-          echo "  KC_TOKEN_PATH: /realms/waseel-stg/protocol/openid-connect/token"
-          echo "  KC_CLIENT_ID: ${KC_CLIENT_ID:0:3}*** (length: ${#KC_CLIENT_ID})"
-          echo "  KC_USERNAME: ${KC_USERNAME:0:3}*** (length: ${#KC_USERNAME})"
-          echo ""
-          HTTP_CODE=$(curl -s -o /tmp/kc_response.txt -w "%{http_code}" \
-            -X POST \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "grant_type=password&client_id=${KC_CLIENT_ID}&client_secret=${KC_CLIENT_SECRET}&username=${KC_USERNAME}&password=${KC_PASSWORD}" \
-            --connect-timeout 10 \
-            --max-time 15 \
-            "https://qa-iam.waseel.com/realms/waseel-stg/protocol/openid-connect/token")
-          echo "HTTP Status: ${HTTP_CODE}"
-          echo "Response body:"
-          cat /tmp/kc_response.txt
-          echo ""
-          if [ "${HTTP_CODE}" = "200" ]; then
-            echo "✅ Keycloak token endpoint is working!"
-          else
-            echo "❌ Keycloak token endpoint returned HTTP ${HTTP_CODE}"
-            echo "  Check: realm name, client_id, client_secret, username, password"
-          fi
-
       # ── Test 1: Smoke ──────────────────────────────────────
       - name: "🔵 Smoke Test (2 VU, 60s)"
         id: smoke
@@ -165,10 +138,6 @@ jobs:
           $JMETER_HOME/bin/jmeter \
             -n \
             -t test-plan-smoke.jmx \
-            -JKC_CLIENT_ID="${KC_CLIENT_ID}" \
-            -JKC_CLIENT_SECRET="${KC_CLIENT_SECRET}" \
-            -JKC_USERNAME="${KC_USERNAME}" \
-            -JKC_PASSWORD="${KC_PASSWORD}" \
             -l results/smoke/results.csv \
             -e \
             -o results/smoke/html_report
@@ -195,10 +164,6 @@ jobs:
           $JMETER_HOME/bin/jmeter \
             -n \
             -t test-plan-load.jmx \
-            -JKC_CLIENT_ID="${KC_CLIENT_ID}" \
-            -JKC_CLIENT_SECRET="${KC_CLIENT_SECRET}" \
-            -JKC_USERNAME="${KC_USERNAME}" \
-            -JKC_PASSWORD="${KC_PASSWORD}" \
             -l results/load/results.csv \
             -e \
             -o results/load/html_report
@@ -221,10 +186,6 @@ jobs:
           $JMETER_HOME/bin/jmeter \
             -n \
             -t test-plan-stress.jmx \
-            -JKC_CLIENT_ID="${KC_CLIENT_ID}" \
-            -JKC_CLIENT_SECRET="${KC_CLIENT_SECRET}" \
-            -JKC_USERNAME="${KC_USERNAME}" \
-            -JKC_PASSWORD="${KC_PASSWORD}" \
             -l results/stress/results.csv \
             -e \
             -o results/stress/html_report
@@ -247,10 +208,6 @@ jobs:
           $JMETER_HOME/bin/jmeter \
             -n \
             -t test-plan-spike.jmx \
-            -JKC_CLIENT_ID="${KC_CLIENT_ID}" \
-            -JKC_CLIENT_SECRET="${KC_CLIENT_SECRET}" \
-            -JKC_USERNAME="${KC_USERNAME}" \
-            -JKC_PASSWORD="${KC_PASSWORD}" \
             -l results/spike/results.csv \
             -e \
             -o results/spike/html_report
