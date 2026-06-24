@@ -10,7 +10,6 @@
 #
 # After all tests complete (pass or fail):
 #   → A unified HTML dashboard is published to GitHub Pages
-#   → Results published to GitHub Pages dashboard
 #
 # Key design decisions:
 #   • All 4 tests run in ONE job — JMeter is installed once (saves ~15 min)
@@ -127,82 +126,6 @@ jobs:
           fi
           echo "✅ All Keycloak secrets validated."
 
-      # ── Debug: Comprehensive Keycloak diagnostics ──────────
-      - name: "🔍 Diagnose Keycloak Token Generation"
-        run: |
-          KC_URL="https://qa-iam.waseel.com/realms/waseel-stg/protocol/openid-connect/token"
-          echo "══════════════════════════════════════════════════"
-          echo "  KEYCLOAK TOKEN GENERATION DIAGNOSTICS"
-          echo "══════════════════════════════════════════════════"
-          echo ""
-          echo "Endpoint: ${KC_URL}"
-          echo "Client ID: ${KC_CLIENT_ID} (len: ${#KC_CLIENT_ID})"
-          echo "Username:  ${KC_USERNAME} (len: ${#KC_USERNAME})"
-          echo "Secret:    [${KC_CLIENT_ID:0:3}***] (len: ${#KC_CLIENT_SECRET})"
-          echo "Password:  [${KC_PASSWORD:0:3}***] (len: ${#KC_PASSWORD})"
-          echo ""
-
-          # Test 1: Basic connectivity
-          echo "── Test 1: Basic connectivity (GET realm) ──"
-          HTTP=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "https://qa-iam.waseel.com/realms/waseel-stg" 2>&1)
-          echo "  HTTP Status: ${HTTP}"
-          echo ""
-
-          # Test 2: Token with verbose output
-          echo "── Test 2: Token request (verbose) ──"
-          curl -v -X POST \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "grant_type=password&client_id=${KC_CLIENT_ID}&client_secret=${KC_CLIENT_SECRET}&username=${KC_USERNAME}&password=${KC_PASSWORD}" \
-            --connect-timeout 10 --max-time 15 \
-            "${KC_URL}" 2>&1 | grep -E "^(< HTTP|< Location|< Content|{|})"
-          echo ""
-
-          # Test 3: Token with full response
-          echo "── Test 3: Token request (full response) ──"
-          RESP=$(curl -s -w "\n---HTTP_CODE:%{http_code}---" \
-            -X POST \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "grant_type=password&client_id=${KC_CLIENT_ID}&client_secret=${KC_CLIENT_SECRET}&username=${KC_USERNAME}&password=${KC_PASSWORD}" \
-            --connect-timeout 10 --max-time 15 \
-            "${KC_URL}")
-          echo "${RESP}"
-          echo ""
-
-          # Test 4: Check if it's a redirect issue
-          echo "── Test 4: Token request (follow redirects) ──"
-          RESP2=$(curl -sL -w "\n---HTTP_CODE:%{http_code}---" \
-            -X POST \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "grant_type=password&client_id=${KC_CLIENT_ID}&client_secret=${KC_CLIENT_SECRET}&username=${KC_USERNAME}&password=${KC_PASSWORD}" \
-            --connect-timeout 10 --max-time 15 \
-            "${KC_URL}")
-          echo "${RESP2}"
-          echo ""
-
-          # Test 5: Try with explicit encoding
-          echo "── Test 5: Token request (explicit URL encoding) ──"
-          BODY="grant_type=password&client_id=$(printf '%s' "${KC_CLIENT_ID}" | jq -sRr @uri)&client_secret=$(printf '%s' "${KC_CLIENT_SECRET}" | jq -sRr @uri)&username=$(printf '%s' "${KC_USERNAME}" | jq -sRr @uri)&password=$(printf '%s' "${KC_PASSWORD}" | jq -sRr @uri)"
-          RESP3=$(curl -s -w "\n---HTTP_CODE:%{http_code}---" \
-            -X POST \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "${BODY}" \
-            --connect-timeout 10 --max-time 15 \
-            "${KC_URL}")
-          echo "${RESP3}"
-          echo ""
-          echo "══════════════════════════════════════════════════"
-
-      # ── Debug: Print env vars for JMeter ──────────────────
-      - name: "🔍 Print Env Vars"
-        run: |
-          echo "Environment variables visible to JMeter:"
-          echo "  KC_CLIENT_ID=[${KC_CLIENT_ID:0:3}***] len=${#KC_CLIENT_ID}"
-          echo "  KC_CLIENT_SECRET=[${KC_CLIENT_SECRET:0:3}***] len=${#KC_CLIENT_SECRET}"
-          echo "  KC_USERNAME=[${KC_USERNAME:0:3}***] len=${#KC_USERNAME}"
-          echo "  KC_PASSWORD=[${KC_PASSWORD:0:3}***] len=${#KC_PASSWORD}"
-          echo "  All env vars with KC:"
-          env | grep -i "^KC_" || echo "  (none found)"
-
       # ── Test 1: Smoke ──────────────────────────────────────
       - name: "🔵 Smoke Test (2 VU, 60s)"
         id: smoke
@@ -219,14 +142,6 @@ jobs:
             -o results/smoke/html_report
           EXIT_CODE=$?
           echo "✅ Smoke Test finished with exit code: ${EXIT_CODE}"
-          if [ -f results/smoke/results.csv ] && grep -q "false" results/smoke/results.csv; then
-            echo "❌ ERROR rows detected in results.csv:"
-            grep "false" results/smoke/results.csv | head -5
-          fi
-          if [ -f jmeter.log ]; then
-            echo "--- Last 30 lines of jmeter.log ---"
-            tail -30 jmeter.log
-          fi
           exit ${EXIT_CODE}
 
       # ── Test 2: Load ───────────────────────────────────────
@@ -245,10 +160,6 @@ jobs:
             -o results/load/html_report
           EXIT_CODE=$?
           echo "✅ Load Test finished with exit code: ${EXIT_CODE}"
-          if [ -f jmeter.log ]; then
-            echo "--- Last 30 lines of jmeter.log ---"
-            tail -30 jmeter.log
-          fi
           exit ${EXIT_CODE}
 
       # ── Test 3: Stress ─────────────────────────────────────
@@ -267,10 +178,6 @@ jobs:
             -o results/stress/html_report
           EXIT_CODE=$?
           echo "✅ Stress Test finished with exit code: ${EXIT_CODE}"
-          if [ -f jmeter.log ]; then
-            echo "--- Last 30 lines of jmeter.log ---"
-            tail -30 jmeter.log
-          fi
           exit ${EXIT_CODE}
 
       # ── Test 4: Spike ──────────────────────────────────────
@@ -289,10 +196,6 @@ jobs:
             -o results/spike/html_report
           EXIT_CODE=$?
           echo "✅ Spike Test finished with exit code: ${EXIT_CODE}"
-          if [ -f jmeter.log ]; then
-            echo "--- Last 30 lines of jmeter.log ---"
-            tail -30 jmeter.log
-          fi
           exit ${EXIT_CODE}
 
       # ── Upload all raw results (CSV + HTML reports) ────────

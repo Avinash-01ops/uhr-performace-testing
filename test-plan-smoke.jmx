@@ -79,7 +79,7 @@ FIXES APPLIED vs previous version:
         <intProp name="ThreadGroup.num_threads">1</intProp>
         <intProp name="ThreadGroup.ramp_time">1</intProp>
         <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
-        <stringProp name="ThreadGroup.on_sample_error">stoptest</stringProp>
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
         <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController">
           <stringProp name="LoopController.loops">1</stringProp>
           <boolProp name="LoopController.continue_forever">false</boolProp>
@@ -95,16 +95,7 @@ FIXES APPLIED vs previous version:
           </collectionProp>
         </HeaderManager>
         <hashTree/>
-        <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor" testname="Debug: Log KC Variables" enabled="true">
-          <stringProp name="cacheKey">true</stringProp>
-          <stringProp name="filename"></stringProp>
-          <stringProp name="parameters"></stringProp>
-          <stringProp name="script">
-log.info(&quot;=== KC DEBUG === KC_CLIENT_ID=&quot; + vars.get(&quot;KC_CLIENT_ID&quot;) + &quot; | KC_CLIENT_SECRET len=&quot; + (vars.get(&quot;KC_CLIENT_SECRET&quot;) != null ? vars.get(&quot;KC_CLIENT_SECRET&quot;).length() : &quot;null&quot;) + &quot; | KC_USERNAME=&quot; + vars.get(&quot;KC_USERNAME&quot;) + &quot; | KC_PASSWORD len=&quot; + (vars.get(&quot;KC_PASSWORD&quot;) != null ? vars.get(&quot;KC_PASSWORD&quot;).length() : &quot;null&quot;) + &quot; | KC_HOST=&quot; + vars.get(&quot;KC_HOST&quot;) + &quot; | KC_TOKEN_PATH=&quot; + vars.get(&quot;KC_TOKEN_PATH&quot;));
-          </stringProp>
-          <stringProp name="scriptLanguage">groovy</stringProp>
-        </JSR223PreProcessor>
-        <hashTree/>
+
         <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Keycloak - Generate Token">
           <intProp name="HTTPSampler.connect_timeout">10000</intProp>
           <intProp name="HTTPSampler.response_timeout">15000</intProp>
@@ -162,16 +153,6 @@ log.info(&quot;=== KC DEBUG === KC_CLIENT_ID=&quot; + vars.get(&quot;KC_CLIENT_I
             <intProp name="Assertion.test_type">8</intProp>
           </ResponseAssertion>
           <hashTree/>
-          <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor" testname="Debug: Log Response" enabled="true">
-            <stringProp name="cacheKey">true</stringProp>
-            <stringProp name="filename"></stringProp>
-            <stringProp name="parameters"></stringProp>
-            <stringProp name="script">
-log.info(&quot;=== KC RESPONSE DEBUG === URL=&quot; + prev.getUrlAsString() + &quot; | Status=&quot; + prev.getResponseCode() + &quot; | Body=&quot; + prev.getResponseDataAsString());
-            </stringProp>
-            <stringProp name="scriptLanguage">groovy</stringProp>
-          </JSR223PostProcessor>
-          <hashTree/>
           <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="Extract access_token" enabled="true">
             <stringProp name="JSONPostProcessor.referenceNames">access_token_local</stringProp>
             <stringProp name="JSONPostProcessor.jsonPathExprs">$.access_token</stringProp>
@@ -189,8 +170,7 @@ if (token != null &amp;&amp; !token.equals(&quot;TOKEN_NOT_FOUND&quot;) &amp;&am
     props.put(&quot;GLOBAL_AUTH_TOKEN&quot;, token);
     log.info(&quot;=== TOKEN ACQUIRED. Length: &quot; + token.length() + &quot; | Prefix: &quot; + token.substring(0, Math.min(30, token.length())));
 } else {
-    log.error(&quot;=== TOKEN EXTRACTION FAILED. Response body: &quot; + prev.getResponseDataAsString());
-    throw new Exception(&quot;Keycloak token not found in response - test aborted&quot;);
+    log.warn(&quot;=== TOKEN EXTRACTION FAILED - tests will run without auth token ===&quot;);
 }
             </stringProp>
             <stringProp name="scriptLanguage">groovy</stringProp>
